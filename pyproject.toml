@@ -1,0 +1,85 @@
+[project]
+name = "ECO2Auto"
+version = "0.1.0"
+description = "ECO2 Automate"
+dependencies = [
+    "pywinauto>=0.6.8",
+    "more-itertools>=10.4.0",
+    "rich>=13.7.1",
+    "loguru>=0.7.2",
+    "cyclopts>=2.9.7",
+    "polars>=1.5.0",
+    "fastexcel>=0.11.5",
+    "xlsxwriter>=3.2.0",
+    "cx-freeze>=7.2.0",
+    "numpy<2",                # cx-freeze
+]
+readme = "README.md"
+requires-python = ">= 3.12"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.rye]
+managed = true
+dev-dependencies = [
+    "ruff>=0.6.1",
+    "pylint>=3.2.6",
+    "mypy>=1.11.0",
+    "typos>=1.23.2",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["eco2auto"]
+
+[tool.cxfreeze]
+executables = [{ script = "eco2auto/app.py" }]
+
+[tool.cxfreeze.build_exe]
+includes = ["pywinauto", "comtypes.stream", "polars", "fastexcel"]
+
+[tool.ruff]
+extend-exclude = ['build']
+output-format = "concise"
+preview = true
+respect-gitignore = false
+
+[tool.ruff.format]
+docstring-code-format = true
+preview = true
+quote-style = "single"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "ANN",    # flake8-annotations
+    "COM",    # flake8-commas
+    "CPY",    # flake8-copyright
+    "D1",     # pydocstyle: D1*
+    "E1",     # pycodestyle: E1*
+    "E2",     # pycodestyle: E2*
+    "FIX",    # flake8-fixme
+    "INP",    # flake8-no-pep420
+    "ISC001", # flake8-implicit-str-concat: single-line-implicit-string-concatenation
+    "PD",     # pandas-vet
+    "Q",      # flake8-quotes
+    "TD",     # flake8-todos
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.pylint.messages_control]
+confidence = ["HIGH", "CONTROL_FLOW", "INFERENCE"]
+enable = ["bad-inline-option", "useless-suppression"]
+disable = ["R", "C", "c-extension-no-member"]
+
+[tool.mypy]
+disable_error_code = ["import-untyped", "import", "var-annotated"]
+check_untyped_defs = true
+warn_unused_ignores = true
+warn_unused_configs = true
