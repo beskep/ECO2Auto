@@ -20,7 +20,7 @@ class NotAbsolutePathError(OSError):
 
 def find_eco2():
     p = 'ECO2_*/Eco2Ar.exe'
-    if not (paths := list(Path('C:').glob(p))):
+    if not (paths := list(Path('C:/').glob(p))):
         raise FileNotFoundError(p)
 
     if len(paths) > 1:
