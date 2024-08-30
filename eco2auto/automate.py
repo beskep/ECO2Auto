@@ -1,16 +1,22 @@
+from __future__ import annotations
+
 import os
 from collections.abc import Iterable
 from contextlib import suppress
 from itertools import repeat
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from loguru import logger
 from more_itertools import always_iterable
 from pywinauto import ElementNotFoundError, keyboard
 from pywinauto.application import Application, WindowSpecification
 
-PathLike = str | os.PathLike
+if TYPE_CHECKING:
+    from _typeshed import StrPath
+
+    IterPath = StrPath | Iterable[StrPath]
+
 Overwrite = Literal['raise', 'overwrite', 'skip']
 
 
@@ -45,7 +51,7 @@ class Eco2Path(NamedTuple):
         )
 
     @classmethod
-    def create(cls, src: PathLike, dst: PathLike | None):
+    def create(cls, src: StrPath, dst: StrPath | None):
         s = Path(src)
 
         if dst is None:
@@ -62,12 +68,12 @@ class Eco2Path(NamedTuple):
     @classmethod
     def iter(
         cls,
-        src: PathLike | Iterable[PathLike],
-        dst: PathLike | Iterable[PathLike] | None,
+        src: IterPath,
+        dst: IterPath | None,
     ):
-        its: Iterable[PathLike] = always_iterable(src)
+        its: Iterable[StrPath] = always_iterable(src)
 
-        itd: Iterable[PathLike | None]
+        itd: Iterable[StrPath | None]
         if dst is None or (not isinstance(dst, Iterable) and Path(dst).is_dir()):
             itd = repeat(dst)
             strict = False
@@ -112,7 +118,7 @@ class Eco2App:
         self.win: WindowSpecification = window
         self.overwrite: Overwrite = overwrite
 
-    def open(self, path: PathLike):
+    def open(self, path: StrPath):
         path = Path(path)
         if not path.is_absolute():
             raise NotAbsolutePathError(path)
@@ -164,7 +170,7 @@ class Eco2App:
         # "완료" 창
         keyboard.send_keys('{ENTER}')
 
-    def write_report(self, path: PathLike):
+    def write_report(self, path: StrPath):
         path = Path(path)
         if not path.is_absolute():
             raise NotAbsolutePathError(path)
@@ -237,7 +243,7 @@ class Eco2App:
             dialog.child_window(title='확인', control_type='Button').click_input()
             logger.trace('"종료하시겠습니까?" 확인')
 
-    def run(self, src: PathLike, dst: PathLike | None = None):
+    def run(self, src: StrPath, dst: StrPath | None = None):
         src = Path(src).absolute()
         dst = (Path(dst) if dst else src.with_suffix('.xls')).absolute()
 
@@ -256,11 +262,7 @@ class Eco2App:
         logger.trace('write report')
         self.write_report(dst)
 
-    def check_dst(
-        self,
-        src: PathLike | Iterable[PathLike],
-        dst: PathLike | Iterable[PathLike] | None = None,
-    ):
+    def check_dst(self, src: IterPath, dst: IterPath | None = None):
         if self.overwrite != 'raise':
             return
 
@@ -268,11 +270,7 @@ class Eco2App:
             if p.dst.exists():
                 raise FileExistsError(p.dst)
 
-    def batch_run(
-        self,
-        src: PathLike | Iterable[PathLike],
-        dst: PathLike | Iterable[PathLike] | None = None,
-    ):
+    def batch_run(self, src: IterPath, dst: IterPath | None = None):
         for p in Eco2Path.iter(src=src, dst=dst):
             r = p.relative()
 
