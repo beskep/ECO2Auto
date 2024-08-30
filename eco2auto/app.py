@@ -7,13 +7,15 @@ from cyclopts import App, Group, Parameter
 from loguru import logger
 
 from eco2auto.automate import Eco2App, Overwrite
-from eco2auto.report import Eco2Report
+from eco2auto.report import Eco2GraphReport
 from eco2auto.utils import Progress, set_logger
 
 
 def _read_reports(paths: Iterable[Path]):
     return pl.concat(
-        Eco2Report(p).dataframe.select(
+        Eco2GraphReport(p)
+        .data()
+        .select(
             pl.lit(p.as_posix()).alias('path'),
             pl.lit(p.stem).alias('case'),
             pl.all(),

@@ -1,5 +1,4 @@
 import dataclasses as dc
-from functools import cached_property
 from itertools import chain
 from pathlib import Path
 from typing import IO
@@ -15,26 +14,43 @@ def _key_value(data: str):
         return (data.rstrip(' :'), None)
 
 
+def as_float(expr: pl.Expr, *, strict: bool = False):
+    return (
+        expr.str.replace_all(',', '')
+        .str.strip_suffix('%')
+        .cast(pl.Float64, strict=strict)
+    )
+
+
 class EmptyDataError(ValueError):
     pass
 
 
 @dc.dataclass
-class Eco2ReportRows:
+class Eco2ReportBase:
+    source: str | Path | IO[bytes] | bytes
+
+    def data(self, *args, **kwargs) -> pl.DataFrame:
+        raise NotImplementedError
+
+
+@dc.dataclass
+class Eco2GraphRows:
     monthly: tuple[int, int] = (0, 2)
     yearly: tuple[int, int] = (2, 8)
     stats: int = -3
 
 
 @dc.dataclass
-class Eco2Report:
-    source: str | Path | IO[bytes] | bytes
-    rows: Eco2ReportRows = dc.field(default_factory=Eco2ReportRows)
+class Eco2GraphReport(Eco2ReportBase):
+    """`그래프 > 계산결과그래프` 파일."""
+
+    rows: Eco2GraphRows = dc.field(default_factory=Eco2GraphRows)
 
     building_type: str = dc.field(init=False)
     monthly: pl.DataFrame = dc.field(init=False)
     yearly: pl.DataFrame = dc.field(init=False)
-    stats: dict[str, float] = dc.field(init=False)
+    misc: dict[str, float] = dc.field(init=False)
 
     def __post_init__(self):
         raw = pl.read_excel(self.source)
@@ -42,9 +58,9 @@ class Eco2Report:
         if 'No Data' in raw:
             raise EmptyDataError
 
-        self.stats = self._stats(raw)
         self.building_type, self.monthly = self._monthly(raw)
         self.yearly = self._yearly(raw)
+        self.misc = self._stats(raw)
 
     def _stats(self, raw: pl.DataFrame):
         tail = raw[self.rows.stats :]
@@ -95,35 +111,103 @@ class Eco2Report:
         return (
             df.with_columns(pl.all().exclude('variable').cast(pl.Float64))
             .unpivot(index='variable', variable_name='energy')
-            .with_columns(pl.lit('kWh/m²yr').alias('unit'))
+            .with_columns(
+                pl.col('variable')
+                .replace_strict('CO2발생량', 'kgCO₂/m²', default='kWh/m²yr')
+                .alias('unit')
+            )
             .sort('variable', 'energy')
         )
 
-    @cached_property
-    def dataframe(self) -> pl.DataFrame:
+    def _misc(self, *, upload_format: bool = False):
+        df = (
+            pl.DataFrame(
+                list(self.misc.items()),
+                schema=[('variable', pl.String), ('value', pl.Float64)],
+                orient='row',
+            )
+            .select(
+                pl.lit('기타').alias('category'),
+                pl.all(),
+                pl.col('variable')
+                .str.extract('^((단위면적당)|(에너지자립률)).*')
+                .replace_strict({'단위면적당': 'kWh/m²yr', '에너지자립률': '%'})
+                .alias('unit'),
+            )
+            .sort(pl.col('variable'))
+        )
+
+        if upload_format:
+            bldg = pl.DataFrame({'category': '건물개요', 'value': self.building_type})
+            zeb = df.with_columns(pl.lit('제로에너지건축물').alias('category'))
+            df = pl.concat([bldg, zeb], how='diagonal_relaxed')
+
+        return df
+
+    def data(self, *, upload_format: bool = False):
         monthly = self.monthly.select(
             pl.lit('월별').alias('category'),
             pl.lit('요구량').alias('variable'),
             pl.all(),
         )
         yearly = self.yearly.select(pl.lit('연간').alias('category'), pl.all())
-        stats = (
-            pl.DataFrame(
-                list(self.stats.items()),
-                schema=[('variable', pl.String), ('value', pl.Float64)],
-                orient='row',
-            )
-            .sort('variable')
-            .select(
-                pl.lit('기타').alias('category'),
-                pl.all(),
-                pl.when(pl.col('variable').str.starts_with('단위면적당'))
-                .then(pl.lit('kWh/m²yr'))
-                .when(pl.col('variable').str.starts_with('에너지자립률'))
-                .then(pl.lit('%'))
-                .otherwise(pl.lit(None))
-                .alias('unit'),
-            )
+        misc = self._misc(upload_format=upload_format)
+
+        df = pl.concat([monthly, yearly, misc], how='diagonal_relaxed')
+
+        if upload_format:
+            df = df.with_columns(
+                pl.col('category').replace({
+                    '월별': '평가결과(월별)',
+                    '연간': '평가결과',
+                }),
+                pl.col('variable').replace({
+                    '요구량': '에너지요구량',
+                    '소요량': '에너지소요량',
+                    '1차소요량': '1차에너지소요량',
+                    '등급용1차소요량': '등급산출용 1차에너지소요량',
+                    'CO2발생량': '단위면적당CO₂발생량',
+                }),
+                pl.col('energy').str.strip_suffix('에너지'),
+                pl.format('{}월', pl.col('month')),
+            ).rename({
+                'category': '구분',
+                'variable': '항목(대)',
+                'energy': '항목(중)',
+                'month': '항목(소)',
+                'value': '값',
+                'unit': '단위',
+            })
+
+        return df
+
+
+@dc.dataclass
+class Eco2UploadReport(Eco2ReportBase):
+    """`계산결과 > 업로드양식` 파일."""
+
+    raw: pl.DataFrame = dc.field(init=False)
+
+    def __post_init__(self):
+        self.raw = pl.read_excel(self.source).with_columns(
+            pl.col('단위')
+            .replace({'-': None})
+            .str.replace_many(['㎡', '년', '•'], ['m²', 'yr', ''])
         )
 
-        return pl.concat([monthly, yearly, stats], how='diagonal')
+    def data(self, *, numeric: bool = False, drop_code: bool = False):
+        df = self.raw
+
+        if drop_code:
+            df = df.drop(cs.ends_with('코드'))
+
+        if numeric:
+            df = df.with_columns(
+                pl.when(pl.col('값').str.ends_with('%'))
+                .then(pl.lit('%'))
+                .otherwise(pl.col('단위'))
+                .alias('단위'),
+                as_float(pl.col('값')),
+            )
+
+        return df
