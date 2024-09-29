@@ -188,7 +188,7 @@ class Eco2App:
 
         # 엑셀 저장 버튼
         graph.set_focus()
-        export = graph.child_window(title='Export', control_type='MenuItem')
+        export = graph.child_window(title_re='Export|내보내기', control_type='MenuItem')
         export.click_input()
         export.child_window(title='Excel', control_type='MenuItem').click_input()
 
