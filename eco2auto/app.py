@@ -1,4 +1,4 @@
-from collections.abc import Container, Iterable
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Annotated
 
@@ -6,9 +6,9 @@ import polars as pl
 from cyclopts import App, Group, Parameter
 from loguru import logger
 
-from eco2auto.automate import Eco2App, Overwrite
+from eco2auto.automate import BatchRunner, Overwrite
 from eco2auto.report import Eco2GraphReport
-from eco2auto.utils import Progress, set_logger
+from eco2auto.utils import set_logger
 
 
 def _read_reports(paths: Iterable[Path]):
@@ -22,19 +22,6 @@ def _read_reports(paths: Iterable[Path]):
         )
         for p in paths
     )
-
-
-def _source(
-    path: Path,
-    suffix: Container[str] = ('.eco', '.ecox', '.tpl', '.tplx'),
-):
-    if not path.is_dir():
-        yield path
-        return
-
-    for p in path.glob('*'):
-        if p.is_file() and p.suffix.lower() in suffix:
-            yield p
 
 
 app = App(help_format='markdown')
@@ -54,15 +41,18 @@ Source = Annotated[Path, Parameter(name=['SOURCE', '--src'])]
 Destination = Annotated[Path | None, Parameter(name=['DESTINATION', '--dst'])]
 Extension = Annotated[tuple[str, ...], Parameter(name=['--extension', '-e'])]
 _Overwrite = Annotated[Overwrite, Parameter(name=['--overwrite', '-o'])]
+Restart = Annotated[int, Parameter(name=['--restart', '-r'])]
 
 
 @app.command
-def run(
+def run(  # noqa: PLR0913
     source: Source,
     destination: Destination = None,
     *,
     extension: Extension = ('eco', 'ecox', 'tpl', 'tplx'),
-    overwrite: _Overwrite = 'raise',
+    overwrite: _Overwrite = 'skip',
+    restart: Restart = 0,
+    recursive: bool = True,
 ):
     """
     ECO2 자동 평가 및 결과 저장.
@@ -78,30 +68,21 @@ def run(
     overwrite : Overwrite, optional
         결과 파일이 이미 존재하는 경우
         오류 발생 (`raise`), 덮어쓰기 (`overwrite`), 또는 넘기기 (`skip`).
+    restart : int, optional
+        0이 아닌 경우 `restart`회마다 ECO2를 재시작.
+    recursive : bool, optional
+        `source` 경로에서 ECO2 파일 재귀적 탐색 여부.
     """
-    extension = tuple(x if x.startswith('.') else f'.{x}' for x in extension)
-
-    if not (src := list(_source(source, suffix=extension))):
-        logger.warning('ECO2 파일을 찾을 수 없습니다. 프로그램을 종료합니다.')
-        return
-
-    eco = Eco2App(overwrite=overwrite)
-    eco.check_dst(src=src, dst=destination)
-
-    with Progress() as p:
-        paths = list(eco.batch_run(src=p.track(src), dst=destination))
-
-    eco.close()
-
-    if paths:
-        path = paths[0].dst.parent / 'Report.xlsx'
-        logger.info('결과 파일 경로: "{}"', path)
-
-        if path.exists() and overwrite != 'overwrite':
-            logger.warning('결과 파일이 이미 존재합니다. 결과를 저장하지 않습니다.')
-            return
-
-        _read_reports(p.dst for p in paths).write_excel(path)
+    ext = tuple(x if x.startswith('.') else f'.{x}' for x in extension)
+    runner = BatchRunner(
+        src=source,
+        dst=destination,
+        extension=ext,
+        overwrite=overwrite,
+        restart=restart,
+        recursive=recursive,
+    )
+    runner.run()
 
 
 @app.command

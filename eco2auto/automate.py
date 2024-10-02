@@ -1,21 +1,24 @@
 from __future__ import annotations
 
-import os
-from collections.abc import Iterable
+import dataclasses as dc
 from contextlib import suppress
-from itertools import repeat
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 from loguru import logger
-from more_itertools import always_iterable
 from pywinauto import ElementNotFoundError, keyboard
 from pywinauto.application import Application, WindowSpecification
 
+from eco2auto.utils import Progress
+
 if TYPE_CHECKING:
+    from collections.abc import Collection, Iterable, Sequence
+
     from _typeshed import StrPath
 
     IterPath = StrPath | Iterable[StrPath]
+
+T = TypeVar('T')
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
 
@@ -24,8 +27,7 @@ class NotAbsolutePathError(OSError):
     pass
 
 
-def find_eco2():
-    p = 'ECO2_*/Eco2Ar.exe'
+def find_eco2(p: str = 'ECO2_*/Eco2Ar.exe'):
     if not (paths := list(Path('C:/').glob(p))):
         raise FileNotFoundError(p)
 
@@ -35,54 +37,9 @@ def find_eco2():
     return paths[-1]
 
 
-class Eco2Path(NamedTuple):
-    src: Path
-    dst: Path
-    root: Path | None
-
-    def relative(self, min_root_len: int = 10):
-        if self.root is None or (len(self.root.as_posix()) < min_root_len):
-            return type(self)(self.src, self.dst, None)
-
-        return type(self)(
-            self.src.relative_to(self.root),
-            self.dst.relative_to(self.root),
-            self.root,
-        )
-
-    @classmethod
-    def create(cls, src: StrPath, dst: StrPath | None):
-        s = Path(src)
-
-        if dst is None:
-            r = s.parent
-            d = s.with_suffix('.xls')
-        else:
-            if (d := Path(dst)).is_dir():
-                d /= f'{s.stem}.xls'
-
-            r = Path(os.path.commonpath([str(s), str(d)]))
-
-        return cls(s, d, r)
-
-    @classmethod
-    def iter(
-        cls,
-        src: IterPath,
-        dst: IterPath | None,
-    ):
-        its: Iterable[StrPath] = always_iterable(src)
-
-        itd: Iterable[StrPath | None]
-        if dst is None or (not isinstance(dst, Iterable) and Path(dst).is_dir()):
-            itd = repeat(dst)
-            strict = False
-        else:
-            itd = always_iterable(dst)
-            strict = True
-
-        for s, d in zip(its, itd, strict=strict):
-            yield cls.create(src=s, dst=d)
+def _track(it: Iterable[T] | Sequence[T]):
+    with Progress() as p:
+        yield from p.track(it)
 
 
 class Eco2App:
@@ -111,6 +68,7 @@ class Eco2App:
         # 새로 연 프로세스의 경우 LOGIN
         window.set_focus()
         if (login := window.child_window(title='사용자확인')).exists():
+            login.set_focus()
             login.child_window(title='LOGIN', depth=1).click_input()
             logger.trace('로그인')
 
@@ -128,7 +86,7 @@ class Eco2App:
         self.win.set_focus()
         keyboard.send_keys('^o')  # ctrl+o 파일열기
 
-        # 경록 입력, 열기
+        # 경로 입력, 열기
         browser = self.win.child_window(title='열기', control_type='Window')
         (
             browser.child_window(title='파일 이름(N):', control_type='ComboBox')
@@ -262,23 +220,60 @@ class Eco2App:
         logger.trace('write report')
         self.write_report(dst)
 
-    def check_dst(self, src: IterPath, dst: IterPath | None = None):
-        if self.overwrite != 'raise':
-            return
 
-        for p in Eco2Path.iter(src=src, dst=dst):
-            if p.dst.exists():
-                raise FileExistsError(p.dst)
+@dc.dataclass
+class BatchRunner:
+    src: Path
+    dst: Path | None = None
 
-    def batch_run(self, src: IterPath, dst: IterPath | None = None):
-        for p in Eco2Path.iter(src=src, dst=dst):
-            r = p.relative()
+    _: dc.KW_ONLY
 
-            if r.root:
-                logger.debug('root={}', r.root.as_posix())
-            logger.info('src={}', r.src.as_posix())
-            logger.info('dst={}', r.dst.as_posix())
+    extension: Collection[str] = ('.eco', '.ecox', '.tpl', '.tplx')
+    overwrite: Overwrite = 'raise'
+    restart: int = 0  # restart every
+    recursive: bool = True
 
-            self.run(src=p.src, dst=p.dst)
+    def __post_init__(self):
+        if not self.src.is_dir():
+            raise NotADirectoryError(self.src)
 
-            yield p
+        if isinstance(self.dst, Path) and not self.dst.is_dir():
+            raise NotADirectoryError(self.dst)
+
+    def iter_src(self, *, track: bool = False) -> Iterable[Path]:
+        glob = self.src.glob('**/*' if self.recursive else '*')
+        source = tuple(x for x in glob if x.suffix in self.extension)
+
+        yield from _track(source) if track else source
+
+    def iter_case(self, *, track: bool = False) -> Iterable[tuple[Path, Path]]:
+        dst = self.dst or self.src
+
+        for s in self.iter_src(track=track):
+            d = dst / f'{s.stem}.xls'
+            yield s, d
+
+    def run(self):
+        if self.overwrite == 'raise':
+            for _, dst in self.iter_case(track=False):
+                if dst.exists():
+                    raise FileExistsError(dst)
+
+        count = 0
+        w = len(str(sum(1 for _ in self.iter_src(track=False))))
+
+        app = Eco2App()
+        for src, dst in self.iter_case(track=True):
+            if self.overwrite == 'skip' and dst.exists():
+                continue
+
+            count += 1
+            logger.info('#{} | case={}', f'{count:0{w}d}', src.stem)
+            app.run(src=src, dst=dst)
+
+            if self.restart and count and (count % self.restart) == 0:
+                logger.info('Restart ECO2')
+                app.close()
+                app = Eco2App()
+
+        app.close()
