@@ -1,6 +1,6 @@
 [project]
 name = "ECO2Auto"
-version = "0.1.0"
+version = "0.2.0"
 description = "ECO2 Automate"
 dependencies = [
     "pywinauto>=0.6.8",
@@ -40,6 +40,7 @@ packages = ["eco2auto"]
 executables = [{ script = "eco2auto/app.py" }]
 
 [tool.cxfreeze.build_exe]
+build_exe = "build/ECO2Auto-exe"
 includes = ["pywinauto", "comtypes.stream", "polars", "fastexcel"]
 
 [tool.ruff]
@@ -68,6 +69,10 @@ ignore = [
     "PD",     # pandas-vet
     "Q",      # flake8-quotes
     "TD",     # flake8-todos
+]
+extend-safe-fixes = [
+    "TCH", # flake8-type-checking
+    "EM",  # flake8-errmsg
 ]
 
 [tool.ruff.lint.pydocstyle]
