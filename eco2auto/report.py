@@ -1,10 +1,14 @@
+from __future__ import annotations
+
 import dataclasses as dc
 from itertools import chain
-from pathlib import Path
-from typing import IO
+from typing import IO, TYPE_CHECKING
 
 import polars as pl
 import polars.selectors as cs
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def _key_value(data: str):

@@ -1,6 +1,7 @@
-from collections.abc import Iterable
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Annotated
+from typing import TYPE_CHECKING, Annotated
 
 import polars as pl
 from cyclopts import App, Group, Parameter
@@ -9,6 +10,9 @@ from loguru import logger
 from eco2auto.automate import BatchRunner, Overwrite
 from eco2auto.report import Eco2GraphReport
 from eco2auto.utils import set_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 
 def _read_reports(paths: Iterable[Path]):

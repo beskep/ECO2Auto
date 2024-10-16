@@ -1,12 +1,16 @@
-from logging import LogRecord
-from pathlib import Path
-from typing import ClassVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, ClassVar
 
 import rich
 from loguru import logger
 from rich import progress
 from rich.logging import RichHandler
 from rich.theme import Theme
+
+if TYPE_CHECKING:
+    from logging import LogRecord
+    from pathlib import Path
 
 console = rich.get_console()
 console.push_theme(Theme({'logging.level.success': 'bold blue'}))

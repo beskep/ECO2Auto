@@ -78,6 +78,9 @@ extend-safe-fixes = [
 [tool.ruff.lint.pydocstyle]
 convention = "numpy"
 
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
+
 [tool.pylint.messages_control]
 confidence = ["HIGH", "CONTROL_FLOW", "INFERENCE"]
 enable = ["bad-inline-option", "useless-suppression"]
