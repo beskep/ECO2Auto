@@ -215,3 +215,28 @@ class Eco2UploadReport(Eco2ReportBase):
             )
 
         return df
+
+
+@dc.dataclass
+class Eco2Calculations(Eco2ReportBase):
+    """`계산결과 > 계산결과` 파일."""
+
+    header_row: int = 4
+
+    def data(self):
+        return (
+            pl.read_excel(self.source, read_options={'header_row': self.header_row})
+            .with_row_index()
+            .rename({'에너지요구량': '변수', '[단위]': '단위', '[기호]': '기호&계수'})
+            .with_columns(
+                pl.when((pl.col('index') == 0) | (pl.col('합계') == '합계'))
+                .then(pl.col('변수'))
+                .otherwise(pl.lit(None))
+                .alias('구분')
+            )
+            .with_columns(pl.col('구분').forward_fill())
+            .drop(cs.contains('__UNNAMED__'))
+            .select('index', '구분', pl.all().exclude('index', '구분'))
+            .filter(pl.col('합계') != '합계')
+            .with_columns(cs.ends_with('합계', '월').cast(pl.Float64))
+        )
