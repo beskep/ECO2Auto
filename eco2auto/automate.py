@@ -12,12 +12,18 @@ from pywinauto.application import Application
 from eco2auto.utils import Progress
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable
+    from collections.abc import Iterable
 
     from pywinauto.application import WindowSpecification
 
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
+Report = Literal[
+    'graph',  # 결과그래프
+    'calculations',  # 계산결과
+    'certificate',  # 인증평가서
+    'upload',  # 업로드 양식
+]
 
 
 class NotAbsolutePathError(OSError):
@@ -41,7 +47,7 @@ class Eco2App:
         self,
         *,
         connect=True,
-        overwrite: Overwrite = 'raise',
+        overwrite: Overwrite = 'skip',
     ) -> None:
         app = Application(backend='uia')
 
@@ -120,30 +126,60 @@ class Eco2App:
         # "완료" 창
         keyboard.send_keys('{ENTER}')
 
-    def write_report(self, path: str | Path):
-        path = Path(path)
-        if not path.is_absolute():
-            raise NotAbsolutePathError(path)
-        if self.overwrite == 'raise' and path.exists():
-            raise FileExistsError(path)
+    def write_report(self, path: str | Path, report: Report = 'graph'):
+        p = Path(path)
 
-        # 결과그래프 창
-        graph = self.app.window(title='결과그래프', control_type='Window')
-        if not graph.exists():
+        if not p.is_absolute():
+            raise NotAbsolutePathError(p)
+        if self.overwrite == 'raise' and p.exists():
+            raise FileExistsError(p)
+
+        match report:
+            case 'graph':
+                self._write_report_graph(p)
+            case 'calculations':
+                self._write_report_calculations(p)
+            case 'certificate' | 'upload':
+                raise NotImplementedError
+            case _:
+                raise ValueError(report)
+
+    def _write_report_graph(self, path: Path):
+        win = self.app.window(title='결과그래프', control_type='Window')
+        if not win.exists():
             logger.trace('결과그래프 창 열기')
             self.win.set_focus()
             self.win.child_window(
                 title='계산결과그래프보기', control_type='Button'
             ).click_input()
 
+        self._write_report(win, path)
+
+    def _write_report_calculations(self, path: Path):
+        self.close_graph()
+
+        win = self.app.window(title_re='계산결과.*', control_type='Window')
+        if not win.exists():
+            logger.trace('계산결과 창 열기')
+            self.win.set_focus()
+
+            kwargs = {'title': '계산결과', 'control_type': 'MenuItem'}
+            self.win.child_window(**kwargs).click_input()
+            self.win.child_window(**kwargs, found_index=1).click_input()
+
+        self._write_report(win, path)
+        win.close()
+
+    def _write_report(self, win: WindowSpecification, path: Path):
+        win.set_focus()
+
         # 엑셀 저장 버튼
-        graph.set_focus()
-        export = graph.child_window(title_re='Export|내보내기', control_type='MenuItem')
+        export = win.child_window(title_re='Export|내보내기', control_type='MenuItem')
         export.click_input()
         export.child_window(title='Excel', control_type='MenuItem').click_input()
 
         # 경로 입력, 저장
-        browser = graph.child_window(title='다른 이름으로 저장', control_type='Window')
+        browser = win.child_window(title='다른 이름으로 저장', control_type='Window')
         (
             browser.child_window(title='파일 이름:', control_type='ComboBox')
             .child_window(title='파일 이름:', control_type='Edit')
@@ -193,9 +229,18 @@ class Eco2App:
             dialog.child_window(title='확인', control_type='Button').click_input()
             logger.trace('"종료하시겠습니까?" 확인')
 
-    def run(self, src: str | Path, dst: str | Path | None = None):
+    def run(
+        self,
+        src: str | Path,
+        dst: str | Path | None = None,
+        report: Report | Literal['auto'] = 'auto',
+    ):
         src = Path(src).absolute()
         dst = (Path(dst) if dst else src.with_suffix('.xls')).absolute()
+
+        if report == 'auto':
+            ext = src.suffix.lower()
+            report = 'graph' if ext.startswith('.eco') else 'calculations'
 
         if self.overwrite == 'skip' and dst.exists():
             logger.info(
@@ -210,7 +255,7 @@ class Eco2App:
         self.calculate()
 
         logger.trace('write report')
-        self.write_report(dst)
+        self.write_report(dst, report=report)
 
 
 @dc.dataclass
@@ -220,8 +265,9 @@ class BatchRunner:
 
     _: dc.KW_ONLY
 
-    extension: Collection[str] = ('.eco', '.ecox', '.tpl', '.tplx')
-    overwrite: Overwrite = 'raise'
+    report: Report | Literal['auto'] = 'auto'
+    extension: Literal['eco', 'tpl', 'any'] = 'any'
+    overwrite: Overwrite = 'skip'
     restart: int = 0  # restart every
     recursive: bool = True
 
@@ -233,8 +279,13 @@ class BatchRunner:
             raise NotADirectoryError(self.dst)
 
     def iter_src(self, *, track: bool = False) -> Iterable[Path]:
+        if self.extension == 'any':
+            ext = {'.eco', '.ecox', '.tpl', '.tplx'}
+        else:
+            ext = {f'.{self.extension}', f'{self.extension}x'}
+
         glob = self.src.glob('**/*' if self.recursive else '*')
-        source = tuple(x for x in glob if x.suffix in self.extension)
+        source = tuple(x for x in glob if x.suffix in ext)
 
         yield from Progress.iter(source) if track else source
 
@@ -251,19 +302,17 @@ class BatchRunner:
                 if dst.exists():
                     raise FileExistsError(dst)
 
-        count = 0
         w = len(str(sum(1 for _ in self.iter_src(track=False))))
 
         app = Eco2App()
-        for src, dst in self.iter_case(track=True):
+        for idx, (src, dst) in enumerate(self.iter_case(track=True), start=1):
             if self.overwrite == 'skip' and dst.exists():
                 continue
 
-            count += 1
-            logger.info('#{} | case={}', f'{count:0{w}d}', src.stem)
+            logger.info('#{} | case={}', f'{idx:0{w}d}', src.stem)
             app.run(src=src, dst=dst)
 
-            if self.restart and count and (count % self.restart) == 0:
+            if self.restart and idx and (idx % self.restart) == 0:
                 logger.info('Restart ECO2')
                 app.close()
                 app = Eco2App()
