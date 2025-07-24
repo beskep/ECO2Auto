@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from eco2auto.app import app
 
 if __name__ == '__main__':
