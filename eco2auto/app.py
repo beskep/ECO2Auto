@@ -9,7 +9,7 @@ from loguru import logger
 
 from eco2auto.automate import BatchRunner, Overwrite
 from eco2auto.report import Eco2GraphReport
-from eco2auto.utils import set_logger
+from eco2auto.utils import LogHandler
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -37,14 +37,14 @@ def launcher(
     *tokens: Annotated[str, Parameter(show=False, allow_leading_hyphen=True)],
     loglevel: Annotated[str | int, Parameter(name=['--loglevel', '-l'])] = 20,
 ):
-    set_logger(level=loglevel)
+    LogHandler.set(level=loglevel)
     app(tokens)
 
 
 Source = Annotated[Path, Parameter(name=['SOURCE', '--src'])]
 Destination = Annotated[Path | None, Parameter(name=['DESTINATION', '--dst'])]
 Extension = Annotated[tuple[str, ...], Parameter(name=['--extension', '-e'])]
-_Overwrite = Annotated[Overwrite, Parameter(name=['--overwrite', '-o'])]
+OverwriteParam = Annotated[Overwrite, Parameter(name=['--overwrite', '-o'])]
 Restart = Annotated[int, Parameter(name=['--restart', '-r'])]
 
 
@@ -54,7 +54,7 @@ def run(  # noqa: PLR0913
     destination: Destination = None,
     *,
     extension: Extension = ('eco', 'ecox', 'tpl', 'tplx'),
-    overwrite: _Overwrite = 'skip',
+    overwrite: OverwriteParam = 'skip',
     restart: Restart = 0,
     recursive: bool = True,
 ):

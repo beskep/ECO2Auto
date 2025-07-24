@@ -3,22 +3,19 @@ from __future__ import annotations
 import dataclasses as dc
 from contextlib import suppress
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
 from pywinauto import ElementNotFoundError, keyboard
-from pywinauto.application import Application, WindowSpecification
+from pywinauto.application import Application
 
 from eco2auto.utils import Progress
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterable, Sequence
+    from collections.abc import Collection, Iterable
 
-    from _typeshed import StrPath
+    from pywinauto.application import WindowSpecification
 
-    IterPath = StrPath | Iterable[StrPath]
-
-T = TypeVar('T')
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
 
@@ -35,11 +32,6 @@ def find_eco2(p: str = 'ECO2_*/Eco2Ar.exe'):
         logger.info('ECO2 경로를 2개 이상 발견함: {}', paths)
 
     return paths[-1]
-
-
-def _track(it: Iterable[T] | Sequence[T]):
-    with Progress() as p:
-        yield from p.track(it)
 
 
 class Eco2App:
@@ -76,7 +68,7 @@ class Eco2App:
         self.win: WindowSpecification = window
         self.overwrite: Overwrite = overwrite
 
-    def open(self, path: StrPath):
+    def open(self, path: str | Path):
         path = Path(path)
         if not path.is_absolute():
             raise NotAbsolutePathError(path)
@@ -128,7 +120,7 @@ class Eco2App:
         # "완료" 창
         keyboard.send_keys('{ENTER}')
 
-    def write_report(self, path: StrPath):
+    def write_report(self, path: str | Path):
         path = Path(path)
         if not path.is_absolute():
             raise NotAbsolutePathError(path)
@@ -201,7 +193,7 @@ class Eco2App:
             dialog.child_window(title='확인', control_type='Button').click_input()
             logger.trace('"종료하시겠습니까?" 확인')
 
-    def run(self, src: StrPath, dst: StrPath | None = None):
+    def run(self, src: str | Path, dst: str | Path | None = None):
         src = Path(src).absolute()
         dst = (Path(dst) if dst else src.with_suffix('.xls')).absolute()
 
@@ -244,7 +236,7 @@ class BatchRunner:
         glob = self.src.glob('**/*' if self.recursive else '*')
         source = tuple(x for x in glob if x.suffix in self.extension)
 
-        yield from _track(source) if track else source
+        yield from Progress.iter(source) if track else source
 
     def iter_case(self, *, track: bool = False) -> Iterable[tuple[Path, Path]]:
         dst = self.dst or self.src
