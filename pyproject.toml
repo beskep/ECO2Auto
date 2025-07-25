@@ -19,6 +19,13 @@ dependencies = [
 [dependency-groups]
 dev = ["mypy>=1.17.0", "ruff>=0.12.4"]
 
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = "."
+
 [tool.ruff]
 preview = true
 output-format = "concise"
