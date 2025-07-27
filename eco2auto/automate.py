@@ -55,11 +55,10 @@ class Eco2App:
         if connect:
             with suppress(ElementNotFoundError):
                 app = app.connect(title_re=self.TITLE_RE)
-                logger.trace('connect "{}"', self.TITLE_RE)
 
         if not app.is_process_running():
             path = find_eco2()
-            logger.trace('start "{}"', path)
+
             app = app.start(str(path))
 
         window = app.window(title_re=self.TITLE_RE)
@@ -69,7 +68,6 @@ class Eco2App:
         if (login := window.child_window(title='사용자확인')).exists():
             login.set_focus()
             login.child_window(title='LOGIN', depth=1).click_input()
-            logger.trace('로그인')
 
         self.app: Application = app
         self.win: WindowSpecification = window
@@ -100,17 +98,13 @@ class Eco2App:
                 .child_window(title='아니요(N)', control_type='Button', depth=1)
                 .click_input()
             )
-            logger.trace('"현재 열려있는 프로젝트를 저장하시겠습니까?" 아니오')
 
         with suppress(ElementNotFoundError):
+            # "해당 파일은 현재 프로그램과 동일한 버젼에서  생성된 파일이 아닙니다."
             (
                 self.win.child_window(title='버전확인', depth=1)
                 .child_window(title='닫기', depth=2)
                 .click_input()
-            )
-            logger.trace(
-                '"해당 파일은 현재 프로그램과 동일한 버젼에서 '
-                '생성된 파일이 아닙니다." 닫기'
             )
 
     def calculate(self):
@@ -148,7 +142,6 @@ class Eco2App:
     def _write_report_graph(self, path: Path):
         win = self.app.window(title='결과그래프', control_type='Window')
         if not win.exists():
-            logger.trace('결과그래프 창 열기')
             self.win.set_focus()
             self.win.child_window(
                 title='계산결과그래프보기', control_type='Button'
@@ -159,7 +152,6 @@ class Eco2App:
     def _write_report_calculations(self, path: Path):
         win = self.app.window(title_re='계산결과.*', control_type='Window')
         if not win.exists():
-            logger.trace('계산결과 창 열기')
             self.close_graph()
             self.win.set_focus()
 
@@ -222,12 +214,12 @@ class Eco2App:
 
         dialog = self.win.child_window(title='확인', control_type='Window')
 
+        # "현재 열려있는 파일을 저장 후 종료하시겠습니까?"
         if dialog.child_window(title_re='.*(열려있는 파일을 저장).*').exists():
             dialog.child_window(title='아니요(N)', control_type='Button').click_input()
-            logger.trace('"현재 열려있는 파일을 저장 후 종료하시겠습니까?" 아니오')
+
         elif dialog.child_window(title_re='.*(종료하시겠습니까).*').exists():
             dialog.child_window(title='확인', control_type='Button').click_input()
-            logger.trace('"종료하시겠습니까?" 확인')
 
     def run(
         self,
@@ -248,13 +240,8 @@ class Eco2App:
             )
             return
 
-        logger.trace('open')
         self.open(src)
-
-        logger.trace('calculate')
         self.calculate()
-
-        logger.trace('write report')
         self.write_report(dst, report=report)
 
 
