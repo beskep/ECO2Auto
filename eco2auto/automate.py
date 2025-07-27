@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import contextlib
 import dataclasses as dc
 from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
-from pywinauto import ElementNotFoundError, keyboard
+from pywinauto import ElementNotFoundError, findwindows, keyboard
 from pywinauto.application import Application
 
 from eco2auto.utils import Progress
@@ -156,11 +157,10 @@ class Eco2App:
         self._write_report(win, path)
 
     def _write_report_calculations(self, path: Path):
-        self.close_graph()
-
         win = self.app.window(title_re='계산결과.*', control_type='Window')
         if not win.exists():
             logger.trace('계산결과 창 열기')
+            self.close_graph()
             self.win.set_focus()
 
             kwargs = {'title': '계산결과', 'control_type': 'MenuItem'}
@@ -269,6 +269,7 @@ class BatchRunner:
     extension: Literal['eco', 'tpl', 'any'] = 'any'
     overwrite: Overwrite = 'skip'
     restart: int = 0  # restart every
+    retry: int = 100  # restart on error
     recursive: bool = True
 
     def __post_init__(self):
@@ -296,7 +297,7 @@ class BatchRunner:
             d = dst / f'{s.stem}.xls'
             yield s, d
 
-    def run(self):
+    def _run(self):
         if self.overwrite == 'raise':
             for _, dst in self.iter_case(track=False):
                 if dst.exists():
@@ -318,3 +319,15 @@ class BatchRunner:
                 app = Eco2App()
 
         app.close()
+
+    def run(self):
+        for _ in range(self.retry):
+            with contextlib.suppress(
+                findwindows.ElementAmbiguousError,
+                findwindows.ElementNotFoundError,
+                findwindows.WindowAmbiguousError,
+                findwindows.WindowNotFoundError,
+            ):
+                self._run()
+
+            keyboard.send_keys('{ESC}')
