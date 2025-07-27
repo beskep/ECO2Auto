@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses as dc
+from collections.abc import Sequence  # noqa: TC003
 from pathlib import Path  # noqa: TC003
 from typing import TYPE_CHECKING, Annotated, Literal
 
@@ -54,7 +55,7 @@ class Runner(BatchRunner):
 
     _: dc.KW_ONLY
 
-    report: Report | Literal['auto'] = 'auto'
+    report: Sequence[Report] = ('graph', 'calculations')
     r"""저장 파일.
     `auto`인 경우 eco 파일은 '결과그래프', tpl 파일은 '계산결과' 저장.\
     결과그래프 (`graph`), 계산결과 (`calculations`),

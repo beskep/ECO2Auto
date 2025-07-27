@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses as dc
-from contextlib import suppress
+import functools
+from collections.abc import Sequence  # noqa: TC003
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -13,8 +14,6 @@ from pywinauto.application import Application
 from eco2auto.utils import Progress
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from pywinauto.application import WindowSpecification
 
 
@@ -25,6 +24,12 @@ Report = Literal[
     'certificate',  # 인증평가서
     'upload',  # 업로드 양식
 ]
+REPORTS: dict[Report, str] = {
+    'graph': '결과그래프',
+    'calculations': '계산결과',
+    'certificate': '인증평가서',
+    'upload': '업로드양식',
+}
 
 
 class NotAbsolutePathError(OSError):
@@ -41,24 +46,60 @@ def find_eco2(p: str = 'ECO2_*/Eco2Ar.exe'):
     return paths[-1]
 
 
+@dc.dataclass
+class Case:
+    model: Path  # eco, tpl
+    output: Path | None
+    reports: Sequence[Report] = ('graph', 'calculations')
+
+    @dc.dataclass(frozen=True)
+    class Paths:
+        graph: Path | None
+        calculations: Path | None
+
+        @functools.cached_property
+        def count(self):
+            return sum(x is not None for x in dc.asdict(self).values())
+
+        @functools.cached_property
+        def exists(self):
+            # cached_property 사용 시 BatchRunner에서 최초 확인 후
+            # 파일 존재 여부가 달라질 수 있기 때문에 Eco2App에서 한번 더 확인 필요
+            return sum(x is not None and x.exists() for x in dc.asdict(self).values())
+
+    def __post_init__(self):
+        if self.model.suffix.lower().startswith('.eco'):
+            self.reports = tuple(x for x in self.reports if x != 'calculations')
+
+    @functools.cached_property
+    def paths(self):
+        output = (self.output or self.model.parent).absolute()
+        stem = self.model.stem
+
+        def path(report: Report):
+            if report not in self.reports:
+                return None
+
+            return output / f'{stem} {REPORTS[report]}.xls'
+
+        return self.Paths(
+            graph=path('graph'),
+            calculations=path('calculations'),
+        )
+
+
 class Eco2App:
     TITLE_RE = '건물에너지평가프로그램.*'
 
-    def __init__(
-        self,
-        *,
-        connect=True,
-        overwrite: Overwrite = 'skip',
-    ) -> None:
+    def __init__(self, *, connect=True) -> None:
         app = Application(backend='uia')
 
         if connect:
-            with suppress(ElementNotFoundError):
+            with contextlib.suppress(ElementNotFoundError):
                 app = app.connect(title_re=self.TITLE_RE)
 
         if not app.is_process_running():
             path = find_eco2()
-
             app = app.start(str(path))
 
         window = app.window(title_re=self.TITLE_RE)
@@ -71,7 +112,19 @@ class Eco2App:
 
         self.app: Application = app
         self.win: WindowSpecification = window
-        self.overwrite: Overwrite = overwrite
+
+    def run(
+        self,
+        case: Path | Case,
+        output: Path | None = None,
+        reports: Sequence[Report] = ('graph', 'calculations'),
+        overwrite: Overwrite = 'skip',
+    ):
+        case = case if isinstance(case, Case) else Case(case, output, reports)
+
+        self.open(case.model)
+        self.calculate()
+        self.write_report(case.paths, overwrite)
 
     def open(self, path: str | Path):
         path = Path(path)
@@ -92,15 +145,14 @@ class Eco2App:
         )
         browser.child_window(title='열기(O)').click_input()
 
-        with suppress(ElementNotFoundError):
+        with contextlib.suppress(ElementNotFoundError):
             (
                 self.win.child_window(title='확인', depth=1)
                 .child_window(title='아니요(N)', control_type='Button', depth=1)
                 .click_input()
             )
 
-        with suppress(ElementNotFoundError):
-            # "해당 파일은 현재 프로그램과 동일한 버젼에서  생성된 파일이 아닙니다."
+        with contextlib.suppress(ElementNotFoundError):
             (
                 self.win.child_window(title='버전확인', depth=1)
                 .child_window(title='닫기', depth=2)
@@ -121,25 +173,26 @@ class Eco2App:
         # "완료" 창
         keyboard.send_keys('{ENTER}')
 
-    def write_report(self, path: str | Path, report: Report = 'graph'):
-        p = Path(path)
+    def write_report(self, paths: Case.Paths, overwrite: Overwrite = 'skip'):
+        exits = paths.exists
+        if exits == paths.count:
+            if overwrite == 'raise':
+                raise FileExistsError(paths)
+            if overwrite == 'skip':
+                logger.info(
+                    '결과 파일이 이미 존재합니다. 설정에 따라 평가를 실행하지 않습니다.'
+                )
+                return
 
-        if not p.is_absolute():
-            raise NotAbsolutePathError(p)
-        if self.overwrite == 'raise' and p.exists():
-            raise FileExistsError(p)
+        if 0 < exits < paths.count:
+            overwrite = 'overwrite'
 
-        match report:
-            case 'graph':
-                self._write_report_graph(p)
-            case 'calculations':
-                self._write_report_calculations(p)
-            case 'certificate' | 'upload':
-                raise NotImplementedError
-            case _:
-                raise ValueError(report)
+        if paths.graph:
+            self._write_report_graph(paths.graph, overwrite)
+        if paths.calculations:
+            self._write_report_calculations(paths.calculations, overwrite)
 
-    def _write_report_graph(self, path: Path):
+    def _write_report_graph(self, path: Path, overwrite: Overwrite = 'skip'):
         win = self.app.window(title='결과그래프', control_type='Window')
         if not win.exists():
             self.win.set_focus()
@@ -147,9 +200,9 @@ class Eco2App:
                 title='계산결과그래프보기', control_type='Button'
             ).click_input()
 
-        self._write_report(win, path)
+        self._write_report(win, path, overwrite)
 
-    def _write_report_calculations(self, path: Path):
+    def _write_report_calculations(self, path: Path, overwrite: Overwrite = 'skip'):
         win = self.app.window(title_re='계산결과.*', control_type='Window')
         if not win.exists():
             self.close_graph()
@@ -159,10 +212,15 @@ class Eco2App:
             self.win.child_window(**kwargs).click_input()
             self.win.child_window(**kwargs, found_index=1).click_input()
 
-        self._write_report(win, path)
+        self._write_report(win, path, overwrite)
         win.close()
 
-    def _write_report(self, win: WindowSpecification, path: Path):
+    @staticmethod
+    def _write_report(
+        win: WindowSpecification,
+        path: Path,
+        overwrite: Overwrite = 'skip',
+    ):
         win.set_focus()
 
         # 엑셀 저장 버튼
@@ -180,17 +238,17 @@ class Eco2App:
         browser.child_window(title='저장(S)', control_type='Button').click_input()
 
         # 덮어쓰기 처리
-        overwrite = browser.child_window(
+        dialog = browser.child_window(
             title='다른 이름으로 저장 확인', control_type='Window'
         )
-        if overwrite.child_window(
+        if dialog.child_window(
             title_re=r'.*(이미 있습니다.\s*바꾸시겠습니까\?).*',
             auto_id='ContentText',
             control_type='Text',
         ).exists():
-            logger.debug('결과 파일 존재함: {}', self.overwrite)
+            logger.debug('결과 파일 존재함: {}', overwrite)
 
-            match self.overwrite:
+            match overwrite:
                 case 'raise':
                     raise FileExistsError(path)
                 case 'overwrite':
@@ -198,7 +256,7 @@ class Eco2App:
                 case 'skip':
                     title = '아니요(N)'
 
-            overwrite.child_window(title=title, control_type='Button').click_input()
+            dialog.child_window(title=title, control_type='Button').click_input()
 
     def close_graph(self):
         graph = self.app.window(title='결과그래프', control_type='Window')
@@ -214,35 +272,10 @@ class Eco2App:
 
         dialog = self.win.child_window(title='확인', control_type='Window')
 
-        # "현재 열려있는 파일을 저장 후 종료하시겠습니까?"
         if dialog.child_window(title_re='.*(열려있는 파일을 저장).*').exists():
             dialog.child_window(title='아니요(N)', control_type='Button').click_input()
-
         elif dialog.child_window(title_re='.*(종료하시겠습니까).*').exists():
             dialog.child_window(title='확인', control_type='Button').click_input()
-
-    def run(
-        self,
-        src: str | Path,
-        dst: str | Path | None = None,
-        report: Report | Literal['auto'] = 'auto',
-    ):
-        src = Path(src).absolute()
-        dst = (Path(dst) if dst else src.with_suffix('.xls')).absolute()
-
-        if report == 'auto':
-            ext = src.suffix.lower()
-            report = 'graph' if ext.startswith('.eco') else 'calculations'
-
-        if self.overwrite == 'skip' and dst.exists():
-            logger.info(
-                '결과 파일이 이미 존재합니다. 설정에 따라 평가를 실행하지 않습니다.'
-            )
-            return
-
-        self.open(src)
-        self.calculate()
-        self.write_report(dst, report=report)
 
 
 @dc.dataclass
@@ -252,7 +285,7 @@ class BatchRunner:
 
     _: dc.KW_ONLY
 
-    report: Report | Literal['auto'] = 'auto'
+    reports: Sequence[Report] = ('graph', 'calculations')
     extension: Literal['eco', 'tpl', 'any'] = 'any'
     overwrite: Overwrite = 'skip'
     restart: int = 0  # restart every
@@ -266,44 +299,41 @@ class BatchRunner:
         if isinstance(self.dst, Path) and not self.dst.is_dir():
             raise NotADirectoryError(self.dst)
 
-    def iter_src(self, *, track: bool = False) -> Iterable[Path]:
+    def cases(self):
         if self.extension == 'any':
             ext = {'.eco', '.ecox', '.tpl', '.tplx'}
         else:
             ext = {f'.{self.extension}', f'{self.extension}x'}
 
         glob = self.src.glob('**/*' if self.recursive else '*')
-        source = tuple(x for x in glob if x.suffix in ext)
-
-        yield from Progress.iter(source) if track else source
-
-    def iter_case(self, *, track: bool = False) -> Iterable[tuple[Path, Path]]:
-        dst = self.dst or self.src
-
-        for s in self.iter_src(track=track):
-            d = dst / f'{s.stem}.xls'
-            yield s, d
+        models = tuple(x for x in glob if x.suffix in ext)
+        return tuple(Case(x, self.dst, self.reports) for x in models)
 
     def _run(self):
-        if self.overwrite == 'raise':
-            for _, dst in self.iter_case(track=False):
-                if dst.exists():
-                    raise FileExistsError(dst)
+        cases = self.cases()
 
-        w = len(str(sum(1 for _ in self.iter_src(track=False))))
+        if self.overwrite == 'raise' and any(x.paths.exists for x in cases):
+            raise FileExistsError([x for x in cases if x.paths.exists])
+
+        cases = tuple(sorted(cases, key=lambda x: (-x.paths.exists, x.model)))
+        w = len(str(len(cases)))
+        count = 0
 
         app = Eco2App()
-        for idx, (src, dst) in enumerate(self.iter_case(track=True), start=1):
-            if self.overwrite == 'skip' and dst.exists():
+
+        for case in Progress.iter(cases):
+            if self.overwrite == 'skip' and case.paths.exists == case.paths.count:
                 continue
 
-            logger.info('#{} | case={}', f'{idx:0{w}d}', src.stem)
-            app.run(src=src, dst=dst)
+            logger.info('#{} | case={}', f'{count:0{w}d}', case.model)
+            app.run(case)
 
-            if self.restart and idx and (idx % self.restart) == 0:
+            if self.restart and count and (count % self.restart) == 0:
                 logger.info('Restart ECO2')
                 app.close()
                 app = Eco2App()
+
+            count += 1
 
         app.close()
 
@@ -316,5 +346,6 @@ class BatchRunner:
                 findwindows.WindowNotFoundError,
             ):
                 self._run()
+                break
 
             keyboard.send_keys('{ESC}')
