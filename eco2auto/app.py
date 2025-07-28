@@ -11,7 +11,7 @@ from cyclopts import Parameter
 from loguru import logger
 
 from eco2auto.automate import BatchRunner, Overwrite, Report  # noqa: TC001
-from eco2auto.report import Eco2GraphReport
+from eco2auto.report import GraphReport
 from eco2auto.utils import LogHandler
 
 if TYPE_CHECKING:
@@ -20,9 +20,7 @@ if TYPE_CHECKING:
 
 def _read_reports(paths: Iterable[Path]):
     return pl.concat(
-        Eco2GraphReport(p)
-        .data()
-        .select(
+        GraphReport(p).data.select(
             pl.lit(p.as_posix()).alias('path'),
             pl.lit(p.stem).alias('case'),
             pl.all(),
