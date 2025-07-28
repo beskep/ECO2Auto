@@ -285,7 +285,7 @@ class BatchRunner:
 
     _: dc.KW_ONLY
 
-    reports: Sequence[Report] = ('graph', 'calculations')
+    report: Sequence[Report] = ('graph', 'calculations')
     extension: Literal['eco', 'tpl', 'any'] = 'any'
     overwrite: Overwrite = 'skip'
     restart: int = 0  # restart every
@@ -307,7 +307,7 @@ class BatchRunner:
 
         glob = self.src.glob('**/*' if self.recursive else '*')
         models = tuple(x for x in glob if x.suffix in ext)
-        return tuple(Case(x, self.dst, self.reports) for x in models)
+        return tuple(Case(x, self.dst, self.report) for x in models)
 
     def _run(self):
         cases = self.cases()
