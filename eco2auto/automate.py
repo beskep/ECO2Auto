@@ -348,14 +348,17 @@ class BatchRunner:
             if retry:
                 logger.info('retry #{}', retry + 1)
 
-            with contextlib.suppress(
+            try:
+                self._run()
+            except (
                 findwindows.ElementAmbiguousError,
                 findwindows.ElementNotFoundError,
                 findwindows.WindowAmbiguousError,
                 findwindows.WindowNotFoundError,
                 timings.TimeoutError,
-            ):
-                self._run()
+            ) as e:
+                logger.warning(repr(e))
+            else:
                 break
 
             keyboard.send_keys('{ESC}')
