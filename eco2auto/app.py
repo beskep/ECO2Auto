@@ -68,6 +68,9 @@ class Runner(BatchRunner):
     오류 발생 (`raise`), 덮어쓰기 (`overwrite`), 또는 넘기기 (`skip`).
     """
 
+    timeout: float = 300
+    """계산 완료까지 최대 대기 시간 [sec]."""
+
     restart: int = 0
     """0이 아닌 경우 `restart`회마다 ECO2를 재시작."""
 

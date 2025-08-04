@@ -5,17 +5,13 @@ import dataclasses as dc
 import functools
 from collections.abc import Sequence  # noqa: TC003
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal
+from typing import Literal
 
 from loguru import logger
-from pywinauto import ElementNotFoundError, findwindows, keyboard
-from pywinauto.application import Application
+from pywinauto import findwindows, keyboard, timings
+from pywinauto.application import Application, WindowSpecification
 
 from eco2auto.utils import Progress
-
-if TYPE_CHECKING:
-    from pywinauto.application import WindowSpecification
-
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
 Report = Literal[
@@ -91,11 +87,11 @@ class Case:
 class Eco2App:
     TITLE_RE = '건물에너지평가프로그램.*'
 
-    def __init__(self, *, connect=True) -> None:
+    def __init__(self, *, connect=True, calculation_timeout: float = 300) -> None:
         app = Application(backend='uia')
 
         if connect:
-            with contextlib.suppress(ElementNotFoundError):
+            with contextlib.suppress(findwindows.ElementNotFoundError):
                 app = app.connect(title_re=self.TITLE_RE)
 
         if not app.is_process_running():
@@ -112,6 +108,7 @@ class Eco2App:
 
         self.app: Application = app
         self.win: WindowSpecification = window
+        self.calculation_timeout: float = calculation_timeout
 
     def run(
         self,
@@ -145,19 +142,27 @@ class Eco2App:
         )
         browser.child_window(title='열기(O)').click_input()
 
-        with contextlib.suppress(ElementNotFoundError):
+        with contextlib.suppress(findwindows.ElementNotFoundError):
             (
                 self.win.child_window(title='확인', depth=1)
                 .child_window(title='아니요(N)', control_type='Button', depth=1)
                 .click_input()
             )
 
-        with contextlib.suppress(ElementNotFoundError):
+        with contextlib.suppress(findwindows.ElementNotFoundError):
             (
                 self.win.child_window(title='버전확인', depth=1)
                 .child_window(title='닫기', depth=2)
                 .click_input()
             )
+
+    @functools.cached_property
+    def completion_window(self):
+        return WindowSpecification({
+            'backend': 'win32',
+            'top_level_only': True,
+            'title': '완료',
+        })
 
     def calculate(self):
         self.close_graph()
@@ -171,6 +176,7 @@ class Eco2App:
         )
 
         # "완료" 창
+        self.completion_window.wait('exists', timeout=self.calculation_timeout)
         keyboard.send_keys('{ENTER}')
 
     def write_report(self, paths: Case.Paths, overwrite: Overwrite = 'skip'):
@@ -183,8 +189,7 @@ class Eco2App:
                     '결과 파일이 이미 존재합니다. 설정에 따라 평가를 실행하지 않습니다.'
                 )
                 return
-
-        if 0 < exits < paths.count:
+        elif 0 < exits < paths.count:
             overwrite = 'overwrite'
 
         if paths.graph:
@@ -288,6 +293,7 @@ class BatchRunner:
     report: Sequence[Report] = ('graph', 'calculations')
     extension: Literal['eco', 'tpl', 'any'] = 'any'
     overwrite: Overwrite = 'skip'
+    timeout: float = 300
     restart: int = 0  # restart every
     retry: int = 100  # restart on error
     recursive: bool = True
@@ -319,7 +325,7 @@ class BatchRunner:
         w = len(str(len(cases)))
         count = 0
 
-        app = Eco2App()
+        app = Eco2App(calculation_timeout=self.timeout)
 
         for case in Progress.iter(cases):
             if self.overwrite == 'skip' and case.paths.exists == case.paths.count:
@@ -338,12 +344,16 @@ class BatchRunner:
         app.close()
 
     def run(self):
-        for _ in range(self.retry):
+        for retry in range(self.retry):
+            if retry:
+                logger.info('retry #{}', retry + 1)
+
             with contextlib.suppress(
                 findwindows.ElementAmbiguousError,
                 findwindows.ElementNotFoundError,
                 findwindows.WindowAmbiguousError,
                 findwindows.WindowNotFoundError,
+                timings.TimeoutError,
             ):
                 self._run()
                 break
