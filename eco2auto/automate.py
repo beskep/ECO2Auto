@@ -235,18 +235,20 @@ class Eco2App:
 
         # 경로 입력, 저장
         browser = win.child_window(title='다른 이름으로 저장', control_type='Window')
-        (
-            browser.child_window(title='파일 이름:', control_type='ComboBox')
+        p = (
+            (browser)  # fmt
+            .child_window(title='파일 이름:', control_type='ComboBox')
             .child_window(title='파일 이름:', control_type='Edit')
-            .set_edit_text(str(path))
         )
+        p.type_keys('{DELETE}')  # del을 누르지 않으면 일부 컴퓨터에서 기본 경로로 저장
+        p.set_text(str(path))
         browser.child_window(title='저장(S)', control_type='Button').click_input()
 
         # 덮어쓰기 처리
-        dialog = browser.child_window(
+        confirm = browser.child_window(
             title='다른 이름으로 저장 확인', control_type='Window'
         )
-        if dialog.child_window(
+        if confirm.child_window(
             title_re=r'.*(이미 있습니다.\s*바꾸시겠습니까\?).*',
             auto_id='ContentText',
             control_type='Text',
@@ -261,7 +263,7 @@ class Eco2App:
                 case 'skip':
                     title = '아니요(N)'
 
-            dialog.child_window(title=title, control_type='Button').click_input()
+            confirm.child_window(title=title, control_type='Button').click_input()
 
     def close_graph(self):
         graph = self.app.window(title='결과그래프', control_type='Window')
