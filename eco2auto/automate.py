@@ -332,7 +332,7 @@ class BatchRunner:
                 continue
 
             logger.info('#{} | case={}', f'{count:0{w}d}', case.model)
-            app.run(case)
+            app.run(case, overwrite=self.overwrite)
 
             if self.restart and count and (count % self.restart) == 0:
                 logger.info('Restart ECO2')
