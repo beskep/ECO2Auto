@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import dataclasses as dc
 import functools
+import warnings
 from collections.abc import Sequence  # noqa: TC003
 from pathlib import Path
 from typing import Literal
@@ -10,8 +11,8 @@ from typing import Literal
 from loguru import logger
 from pywinauto import findwindows, keyboard, timings
 from pywinauto.application import Application, WindowSpecification
-
-from eco2auto.utils import Progress
+from tqdm import TqdmExperimentalWarning
+from tqdm.rich import tqdm
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
 Report = Literal[
@@ -87,7 +88,12 @@ class Case:
 class Eco2App:
     TITLE_RE = '건물에너지평가프로그램.*'
 
-    def __init__(self, *, connect=True, calculation_timeout: float = 300) -> None:
+    def __init__(
+        self,
+        *,
+        connect: bool = True,
+        calculation_timeout: float = 300,
+    ) -> None:
         app = Application(backend='uia')
 
         if connect:
@@ -300,12 +306,28 @@ class BatchRunner:
     retry: int = 100  # restart on error
     recursive: bool = True
 
+    _app: Eco2App | None = dc.field(init=False, default=None)
+
     def __post_init__(self):
         if not self.src.is_dir():
             raise NotADirectoryError(self.src)
 
         if isinstance(self.dst, Path) and not self.dst.is_dir():
             raise NotADirectoryError(self.dst)
+
+    def app(self, *, restart: bool = False):
+        if restart:
+            self.close()
+
+        if self._app is None:
+            self._app = Eco2App(calculation_timeout=self.timeout)
+
+        return self._app
+
+    def close(self):
+        if self._app is not None:
+            self._app.close()
+            self._app = None
 
     def cases(self):
         if self.extension == 'any':
@@ -323,32 +345,27 @@ class BatchRunner:
         if self.overwrite == 'raise' and any(x.paths.exists for x in cases):
             raise FileExistsError([x for x in cases if x.paths.exists])
 
-        cases = tuple(sorted(cases, key=lambda x: (-x.paths.exists, x.model)))
-        w = len(str(len(cases)))
-        count = 0
+        total = len(cases)
+        width = len(str(total))
+        done = sum(1 for x in cases if x.paths.exists == x.paths.count)
+        cases = tuple(x for x in cases if x.paths.exists != x.paths.count)
 
-        app = Eco2App(calculation_timeout=self.timeout)
+        warnings.simplefilter('ignore', TqdmExperimentalWarning)
+        for idx, case in enumerate(tqdm(cases, total=total, initial=done, miniters=0)):
+            if restart := bool(self.restart and idx and (idx % self.restart) == 0):
+                logger.info('Restart ECO2')
 
-        for case in Progress.iter(cases):
-            if self.overwrite == 'skip' and case.paths.exists == case.paths.count:
-                continue
+            app = self.app(restart=restart)
 
-            logger.info('#{} | case={}', f'{count:0{w}d}', case.model)
+            logger.info('#{} | case={}', f'{idx:0{width}d}', case.model)
             app.run(case, overwrite=self.overwrite)
 
-            if self.restart and count and (count % self.restart) == 0:
-                logger.info('Restart ECO2')
-                app.close()
-                app = Eco2App()
-
-            count += 1
-
-        app.close()
+        self.close()
 
     def run(self):
         for retry in range(self.retry):
             if retry:
-                logger.info('retry #{}', retry + 1)
+                logger.info('Retry #{}', retry + 1)
 
             try:
                 self._run()

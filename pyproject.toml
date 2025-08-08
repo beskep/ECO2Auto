@@ -13,6 +13,7 @@ dependencies = [
     "polars>=1.31.0",
     "pywinauto>=0.6.9",
     "rich>=14.0.0",
+    "tqdm>=4.67.1",
     "xlsxwriter>=3.2.5",
 ]
 
