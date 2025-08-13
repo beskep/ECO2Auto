@@ -3,7 +3,6 @@ from __future__ import annotations
 import contextlib
 import dataclasses as dc
 import functools
-import warnings
 from collections.abc import Sequence  # noqa: TC003
 from pathlib import Path
 from typing import Literal
@@ -11,8 +10,8 @@ from typing import Literal
 from loguru import logger
 from pywinauto import findwindows, keyboard, timings
 from pywinauto.application import Application, WindowSpecification
-from tqdm import TqdmExperimentalWarning
-from tqdm.rich import tqdm
+
+from eco2auto.utils import Tqdm
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
 Report = Literal[
@@ -350,9 +349,10 @@ class BatchRunner:
         done = sum(1 for x in cases if x.paths.exists == x.paths.count)
         cases = tuple(x for x in cases if x.paths.exists != x.paths.count)
 
-        warnings.simplefilter('ignore', TqdmExperimentalWarning)
-        for idx, case in enumerate(tqdm(cases, total=total, initial=done, miniters=0)):
+        t = Tqdm(cases, total=total, initial=done)
+        for idx, case in enumerate(t):
             if restart := bool(self.restart and idx and (idx % self.restart) == 0):
+                t.log()
                 logger.info('Restart ECO2')
 
             app = self.app(restart=restart)
