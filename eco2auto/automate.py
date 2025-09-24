@@ -11,7 +11,7 @@ from loguru import logger
 from pywinauto import findwindows, keyboard, timings
 from pywinauto.application import Application, WindowSpecification
 
-from eco2auto.tqdmr import tqdmr
+from eco2auto.utils import tqdmr
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
 Report = Literal[

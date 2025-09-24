@@ -21,6 +21,8 @@ if TYPE_CHECKING:
     from rich.progress import Task
     from rich.table import Table
 
+__all__ = ['tqdmr']
+
 
 class UnitScaleColumn(ProgressColumn):
     def __init__(self, *, unit_scale: bool = False, unit_divisor: float = 1000) -> None:
