@@ -14,7 +14,6 @@ dependencies = [
     "pywinauto>=0.6.9",
     "rich>=14.0.0",
     "tqdm>=4.67.1",
-    "whenever>=0.8.8",
     "xlsxwriter>=3.2.5",
 ]
 

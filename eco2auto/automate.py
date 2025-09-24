@@ -11,7 +11,7 @@ from loguru import logger
 from pywinauto import findwindows, keyboard, timings
 from pywinauto.application import Application, WindowSpecification
 
-from eco2auto.utils import Tqdm
+from eco2auto.tqdmr import tqdmr
 
 Overwrite = Literal['raise', 'overwrite', 'skip']
 Report = Literal[
@@ -241,7 +241,7 @@ class Eco2App:
         # 경로 입력, 저장
         browser = win.child_window(title='다른 이름으로 저장', control_type='Window')
         p = (
-            (browser)  # fmt
+            (browser)
             .child_window(title='파일 이름:', control_type='ComboBox')
             .child_window(title='파일 이름:', control_type='Edit')
         )
@@ -349,10 +349,8 @@ class BatchRunner:
         done = sum(1 for x in cases if x.paths.exists == x.paths.count)
         cases = tuple(x for x in cases if x.paths.exists != x.paths.count)
 
-        t = Tqdm(cases, total=total, initial=done)
-        for idx, case in enumerate(t):
+        for idx, case in enumerate(tqdmr(cases, total=total, initial=done, miniters=1)):
             if restart := bool(self.restart and idx and (idx % self.restart) == 0):
-                t.log()
                 logger.info('Restart ECO2')
 
             app = self.app(restart=restart)
