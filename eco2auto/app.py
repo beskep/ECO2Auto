@@ -71,10 +71,10 @@ class Runner(BatchRunner):
     timeout: float = 300
     """계산 완료까지 최대 대기 시간 [sec]."""
 
-    restart: int = 0
+    restart: int = 10
     """0이 아닌 경우 `restart`회마다 ECO2를 재시작."""
 
-    retry: int = 100
+    retry: int = 10
     """오류 발생 시 최대 재시도 횟수."""
 
     recursive: bool = True

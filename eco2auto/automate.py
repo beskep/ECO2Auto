@@ -301,8 +301,8 @@ class BatchRunner:
     extension: Literal['eco', 'tpl', 'any'] = 'any'
     overwrite: Overwrite = 'skip'
     timeout: float = 300
-    restart: int = 0  # restart every
-    retry: int = 100  # restart on error
+    restart: int = 10  # restart every
+    retry: int = 10  # restart on error
     recursive: bool = True
 
     _app: Eco2App | None = dc.field(init=False, default=None)
