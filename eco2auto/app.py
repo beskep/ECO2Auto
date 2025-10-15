@@ -29,7 +29,11 @@ def _read_reports(paths: Iterable[Path]):
     )
 
 
-app = cyclopts.App(help_format='markdown', help_on_error=True)
+app = cyclopts.App(
+    config=cyclopts.config.Toml('config.toml'),
+    help_format='markdown',
+    help_on_error=True,
+)
 app.meta.group_parameters = cyclopts.Group('Option', sort_key=0)
 
 
