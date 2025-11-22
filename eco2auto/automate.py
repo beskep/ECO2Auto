@@ -368,6 +368,7 @@ class BatchRunner:
             try:
                 self._run()
             except (
+                AttributeError,
                 findwindows.ElementAmbiguousError,
                 findwindows.ElementNotFoundError,
                 findwindows.WindowAmbiguousError,

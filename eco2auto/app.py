@@ -78,7 +78,7 @@ class Runner(BatchRunner):
     restart: int = 10
     """0이 아닌 경우 `restart`회마다 ECO2를 재시작."""
 
-    retry: int = 10
+    retry: int = 42
     """오류 발생 시 최대 재시도 횟수."""
 
     recursive: bool = True
