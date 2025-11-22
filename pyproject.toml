@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "cx-freeze>=8.3.0",
-    "cyclopts>=3.22.3",
+    "cyclopts>=4.2.5",
     "fastexcel>=0.14.0",
     "loguru>=0.7.3",
     "more-itertools>=10.7.0",

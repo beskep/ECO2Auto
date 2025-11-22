@@ -360,7 +360,7 @@ class BatchRunner:
 
         self.close()
 
-    def run(self):
+    def __call__(self):
         for retry in range(self.retry):
             if retry:
                 logger.info('Retry #{}', retry + 1)

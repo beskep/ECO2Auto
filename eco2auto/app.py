@@ -33,6 +33,7 @@ app = cyclopts.App(
     config=cyclopts.config.Toml('config.toml'),
     help_format='markdown',
     help_on_error=True,
+    result_action=['call_if_callable', 'print_non_int_sys_exit'],
 )
 app.meta.group_parameters = cyclopts.Group('Option', sort_key=0)
 
@@ -43,12 +44,14 @@ def launcher(
     loglevel: Annotated[str | int, Parameter(name=['--loglevel', '-l'])] = 20,
 ):
     LogHandler.set(level=loglevel)
-    app(tokens)
+    return app(tokens)
 
 
-@Parameter(name='*')
+@app.command
 @dc.dataclass
-class Runner(BatchRunner):
+class Run(BatchRunner):
+    """ECO2 자동 평가 및 결과 저장."""
+
     src: Path
     """대상 경로. ECO2 파일 또는 ECO2 파일이 저장된 폴더 경로."""
 
@@ -83,12 +86,6 @@ class Runner(BatchRunner):
 
     recursive: bool = True
     """`src` 경로에서 ECO2 파일 재귀적 탐색 여부."""
-
-
-@app.command
-def run(runner: Runner):
-    """ECO2 자동 평가 및 결과 저장."""
-    runner.run()
 
 
 @app.command
